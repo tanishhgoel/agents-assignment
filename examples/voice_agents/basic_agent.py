@@ -111,7 +111,7 @@ async def entrypoint(ctx: JobContext):
     @session.on("user_speech_committed")
     def _on_user_speech(ev: rtc.Transcription):
         is_agent_speaking = session.agent_output_playing
-        transcript = ev.transcript.lower().strip().replace(".", "").replace(",", "")
+        transcript = ev.text.lower().strip().replace(".", "").replace(",", "")
         words = transcript.split()
 
         if is_agent_speaking:
