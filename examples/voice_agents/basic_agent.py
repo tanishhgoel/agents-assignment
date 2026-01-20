@@ -1,6 +1,7 @@
 import logging
 
 from dotenv import load_dotenv
+from livekit import rtc
 
 from livekit.agents import (
     Agent,
@@ -25,6 +26,7 @@ logger = logging.getLogger("basic-agent")
 
 load_dotenv()
 
+IGNORE_WORDS = ["yeah", "okay", "ok", "hmm", "hmmm", "right", "uhuh", "uh-huh", "ahh", "ah", "aha", "mhmm"]
 
 class MyAgent(Agent):
     def __init__(self) -> None:
@@ -79,6 +81,7 @@ async def entrypoint(ctx: JobContext):
     ctx.log_context_fields = {
         "room": ctx.room.name,
     }
+    # 1st change -> adding IGNORE_WORDS list
     session = AgentSession(
         # Speech-to-text (STT) is your agent's ears, turning the user's speech into text that the LLM can understand
         # See all available models at https://docs.livekit.io/agents/models/stt/
@@ -98,10 +101,33 @@ async def entrypoint(ctx: JobContext):
         preemptive_generation=True,
         # sometimes background noise could interrupt the agent session, these are considered false positive interruptions
         # when it's detected, you may resume the agent's speech
-        resume_false_interruption=True,
+
+        # 2nd change -> Disabling false interruption to implement own logic layer 
+        resume_false_interruption=False,
         false_interruption_timeout=1.0,
     )
 
+    #3rd change -> Adding logic layer
+    @session.on("user_speech_committed")
+    def _on_user_speech(ev: rtc.Transcription):
+        is_agent_speaking = session.agent_output_playing
+        transcript = ev.transcript.lower().strip().replace(".", "").replace(",", "")
+        words = transcript.split()
+
+        if is_agent_speaking:
+            is_only_ignore_words = all(word in IGNORE_WORDS for word in words)
+            if is_only_ignore_words:
+                logger.info("Ignoring false interruption from user: {transcript}")
+                return
+            else:
+                logger.info("Valid user interruption detected while agent was speaking : {transcript}")
+                session.stop_speaking()
+        logger.info(f"Processing valid input: '{transcript}' (Agent speaking: {is_agent_speaking})")
+
+    @session.on("user_started_speaking")
+    def _on_user_start():
+        if session.agent_output_playing:
+            logger.debug("User started speaking; holding interruption for validation.")
     # log metrics as they are emitted, and total usage after session is over
     usage_collector = metrics.UsageCollector()
 
